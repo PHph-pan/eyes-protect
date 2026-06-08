@@ -13,7 +13,18 @@ from .database import (
     save_settings,
     update_desktop_alert_status,
 )
-from .schemas import DesktopAlert, DesktopAlertCreate, DesktopAlertStatusUpdate, Event, EventCreate, Settings
+from .schemas import DesktopAlert, DesktopAlertCreate, DesktopAlertStatusUpdate, Event, EventCreate, Settings, TimerState
+from .timer_service import (
+    acknowledge_desktop_alert,
+    get_timer_state,
+    pause_timer,
+    reset_timer,
+    resume_timer,
+    skip_timer,
+    snooze_timer,
+    start_rest_timer,
+    start_timer,
+)
 
 
 app = FastAPI(title="Eyes Protect API")
@@ -86,7 +97,7 @@ def row_to_desktop_alert(row) -> DesktopAlert:
         status=row["status"],
         created_at=row["created_at"],
         shown_at=row["shown_at"],
-        closed_at=row["closed_at"],
+        acknowledged_at=row["acknowledged_at"],
     )
 
 
@@ -97,6 +108,7 @@ def create_desktop_alert(alert: DesktopAlertCreate) -> DesktopAlert:
 
 @app.get("/api/desktop-alerts/pending", response_model=list[DesktopAlert])
 def get_pending_desktop_alerts() -> list[DesktopAlert]:
+    get_timer_state()
     return [row_to_desktop_alert(row) for row in fetch_pending_desktop_alerts()]
 
 
@@ -113,4 +125,46 @@ def update_desktop_alert(alert_id: int, update: DesktopAlertStatusUpdate) -> Des
     row = update_desktop_alert_status(alert_id, update.status)
     if row is None:
         raise HTTPException(status_code=404, detail="Desktop alert not found")
+    if row["status"] == "acknowledged":
+        acknowledge_desktop_alert(alert_id)
     return row_to_desktop_alert(row)
+
+
+@app.get("/api/timer", response_model=TimerState)
+def read_timer():
+    return get_timer_state()
+
+
+@app.post("/api/timer/start", response_model=TimerState)
+def start_timer_endpoint():
+    return start_timer()
+
+
+@app.post("/api/timer/pause", response_model=TimerState)
+def pause_timer_endpoint():
+    return pause_timer()
+
+
+@app.post("/api/timer/resume", response_model=TimerState)
+def resume_timer_endpoint():
+    return resume_timer()
+
+
+@app.post("/api/timer/reset", response_model=TimerState)
+def reset_timer_endpoint():
+    return reset_timer()
+
+
+@app.post("/api/timer/start-rest", response_model=TimerState)
+def start_rest_timer_endpoint():
+    return start_rest_timer()
+
+
+@app.post("/api/timer/snooze", response_model=TimerState)
+def snooze_timer_endpoint():
+    return snooze_timer()
+
+
+@app.post("/api/timer/skip", response_model=TimerState)
+def skip_timer_endpoint():
+    return skip_timer()

@@ -11,9 +11,14 @@ const settings = reactive({
   notification_enabled: true,
 })
 
-const status = ref('idle')
-const pausedFrom = ref('running')
-const remainingSeconds = ref(settings.reminder_interval_minutes * 60)
+const timer = reactive({
+  status: 'idle',
+  remaining_seconds: 0,
+  total_seconds: 0,
+  paused_from_status: null,
+  active_desktop_alert_id: null,
+})
+
 const settingsLoaded = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -21,41 +26,36 @@ const audioContext = ref(null)
 const oscillator = ref(null)
 const gainNode = ref(null)
 const titleTimer = ref(null)
-const tickTimer = ref(null)
-const desktopAlertPollTimer = ref(null)
-const currentDesktopAlertId = ref(null)
+const pollTimer = ref(null)
+const activeAlertEffectId = ref(null)
 
 const statusLabel = computed(() => {
-  if (status.value === 'running') return '下一次提醒'
-  if (status.value === 'alerting') return '需要休息'
-  if (status.value === 'resting') return '休息中'
-  if (status.value === 'paused') return '已暂停'
+  if (timer.status === 'running') return '下一次提醒'
+  if (timer.status === 'alerting') return '需要休息'
+  if (timer.status === 'resting') return '休息中'
+  if (timer.status === 'paused') return '已暂停'
   return '未启动'
 })
 
-const primaryActionLabel = computed(() => (status.value === 'paused' ? '继续' : '启动'))
+const primaryActionLabel = computed(() => (timer.status === 'paused' ? '继续' : '启动'))
 const restDurationMax = computed(() => (settings.rest_duration_unit === 'seconds' ? 3600 : 60))
+const displayTotalSeconds = computed(() => timer.total_seconds || settings.reminder_interval_minutes * 60)
+const displayRemainingSeconds = computed(() => {
+  if (timer.status === 'idle') return settings.reminder_interval_minutes * 60
+  return timer.remaining_seconds
+})
 
 const formattedRemaining = computed(() => {
-  const minutes = Math.floor(remainingSeconds.value / 60)
-  const seconds = remainingSeconds.value % 60
+  const minutes = Math.floor(displayRemainingSeconds.value / 60)
+  const seconds = displayRemainingSeconds.value % 60
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 })
 
 const progressPercent = computed(() => {
-  const total = currentCycleSeconds()
-  if (!total) return 0
-  return Math.max(0, Math.min(100, 100 - (remainingSeconds.value / total) * 100))
+  if (timer.status === 'idle') return 0
+  if (!displayTotalSeconds.value) return 0
+  return Math.max(0, Math.min(100, 100 - (displayRemainingSeconds.value / displayTotalSeconds.value) * 100))
 })
-
-watch(
-  () => settings.reminder_interval_minutes,
-  () => {
-    if (status.value === 'idle') {
-      remainingSeconds.value = settings.reminder_interval_minutes * 60
-    }
-  },
-)
 
 watch(
   () => settings.rest_duration_unit,
@@ -77,11 +77,12 @@ watch(
 
 onMounted(async () => {
   await loadSettings()
+  await fetchTimerState()
+  startPollingTimer()
 })
 
 onBeforeUnmount(() => {
-  stopTimers()
-  stopDesktopAlertPolling()
+  stopPollingTimer()
   stopAlertEffects()
 })
 
@@ -90,7 +91,6 @@ async function loadSettings() {
     const response = await fetch('/api/settings')
     if (!response.ok) throw new Error('读取配置失败')
     Object.assign(settings, await response.json())
-    remainingSeconds.value = settings.reminder_interval_minutes * 60
     settingsLoaded.value = true
   } catch (err) {
     error.value = err.message
@@ -109,9 +109,7 @@ async function saveSettings() {
     if (!response.ok) throw new Error('保存配置失败，请检查数值范围')
     Object.assign(settings, await response.json())
     await unlockAudio()
-    if (status.value === 'idle') {
-      remainingSeconds.value = settings.reminder_interval_minutes * 60
-    }
+    await fetchTimerState()
   } catch (err) {
     error.value = err.message
   } finally {
@@ -119,194 +117,87 @@ async function saveSettings() {
   }
 }
 
-async function recordEvent(event_type, note = '') {
+function startPollingTimer() {
+  stopPollingTimer()
+  pollTimer.value = window.setInterval(fetchTimerState, 1000)
+}
+
+function stopPollingTimer() {
+  if (pollTimer.value) {
+    window.clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+
+async function fetchTimerState() {
   try {
-    await fetch('/api/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_type, note }),
-    })
-  } catch {
-    // Event logging is useful, but the timer should continue if the API is temporarily unavailable.
+    const response = await fetch('/api/timer')
+    if (!response.ok) throw new Error('读取计时状态失败')
+    applyTimerState(await response.json())
+  } catch (err) {
+    error.value = err.message
   }
 }
 
-async function createDesktopAlert() {
-  try {
-    const response = await fetch('/api/desktop-alerts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: '该休息眼睛了',
-        message: '请离开屏幕，眺望远处，给眼睛一次真正的缓冲。',
-      }),
-    })
-    if (!response.ok) throw new Error('创建桌面提醒失败')
-    const alert = await response.json()
-    currentDesktopAlertId.value = alert.id
-    startDesktopAlertPolling()
-  } catch {
-    // The in-page alert remains active even if the desktop companion is not running.
-  }
+function applyTimerState(nextTimer) {
+  Object.assign(timer, nextTimer)
+  syncAlertEffects()
 }
 
-function startDesktopAlertPolling() {
-  stopDesktopAlertPolling()
-  if (!currentDesktopAlertId.value) return
-  desktopAlertPollTimer.value = window.setInterval(checkDesktopAlertStatus, 1000)
-}
-
-function stopDesktopAlertPolling() {
-  if (desktopAlertPollTimer.value) {
-    window.clearInterval(desktopAlertPollTimer.value)
-    desktopAlertPollTimer.value = null
-  }
-}
-
-async function checkDesktopAlertStatus() {
-  if (!currentDesktopAlertId.value || status.value !== 'alerting') {
-    stopDesktopAlertPolling()
+function syncAlertEffects() {
+  const alertKey = timer.active_desktop_alert_id || 'web-alert'
+  if (timer.status === 'alerting') {
+    if (activeAlertEffectId.value !== alertKey) {
+      activeAlertEffectId.value = alertKey
+      startAlertEffects()
+      sendNotification('该休息眼睛了', '离开屏幕，看看远处，让眼睛缓一缓。')
+    }
     return
   }
-  try {
-    const response = await fetch(`/api/desktop-alerts/${currentDesktopAlertId.value}`)
-    if (!response.ok) return
-    const alert = await response.json()
-    if (alert.status === 'closed' && status.value === 'alerting') {
-      stopDesktopAlertPolling()
-      currentDesktopAlertId.value = null
-      startRest()
-    }
-  } catch {
-    // Keep polling while the page is still in the alerting state.
+
+  if (activeAlertEffectId.value !== null) {
+    activeAlertEffectId.value = null
+    stopAlertEffects()
   }
 }
 
-async function startTimer() {
-  await unlockAudio()
-  await requestNotificationPermission()
-  stopAlertEffects()
-  if (status.value === 'paused') {
-    status.value = pausedFrom.value
-  } else {
-    status.value = 'running'
-    if (remainingSeconds.value <= 0) remainingSeconds.value = settings.reminder_interval_minutes * 60
+async function runTimerAction(action) {
+  error.value = ''
+  try {
+    if (action === 'start' || action === 'resume') {
+      await unlockAudio()
+      await requestNotificationPermission()
+    }
+    const response = await fetch(`/api/timer/${action}`, { method: 'POST' })
+    if (!response.ok) throw new Error('计时操作失败')
+    applyTimerState(await response.json())
+  } catch (err) {
+    error.value = err.message
   }
-  startTicking()
+}
+
+function startTimer() {
+  runTimerAction(timer.status === 'paused' ? 'resume' : 'start')
 }
 
 function pauseTimer() {
-  pausedFrom.value = status.value === 'resting' ? 'resting' : 'running'
-  status.value = 'paused'
-  stopTicking()
-  stopDesktopAlertPolling()
-  stopAlertEffects()
-  recordEvent('paused')
+  runTimerAction('pause')
 }
 
 function resetTimer() {
-  status.value = 'idle'
-  remainingSeconds.value = settings.reminder_interval_minutes * 60
-  stopTicking()
-  stopDesktopAlertPolling()
-  currentDesktopAlertId.value = null
-  stopAlertEffects()
-  recordEvent('reset')
-}
-
-function startTicking() {
-  stopTicking()
-  tickTimer.value = window.setInterval(() => {
-    if (remainingSeconds.value > 0) {
-      remainingSeconds.value -= 1
-      if (remainingSeconds.value === 0) handleTimerComplete()
-      return
-    }
-    handleTimerComplete()
-  }, 1000)
-}
-
-function handleTimerComplete() {
-  if (status.value === 'running') triggerReminder()
-  if (status.value === 'resting') finishRest()
-}
-
-function currentCycleSeconds() {
-  if (status.value === 'resting' || (status.value === 'paused' && pausedFrom.value === 'resting')) {
-    return restDurationSeconds()
-  }
-  if (status.value === 'running' || status.value === 'paused') {
-    return settings.reminder_interval_minutes * 60
-  }
-  return settings.reminder_interval_minutes * 60
-}
-
-function restDurationSeconds() {
-  const value = Number(settings.rest_duration_value) || 1
-  return settings.rest_duration_unit === 'seconds' ? value : value * 60
-}
-
-function stopTicking() {
-  if (tickTimer.value) {
-    window.clearInterval(tickTimer.value)
-    tickTimer.value = null
-  }
-}
-
-function stopTimers() {
-  stopTicking()
-  if (titleTimer.value) {
-    window.clearInterval(titleTimer.value)
-    titleTimer.value = null
-  }
-}
-
-async function triggerReminder() {
-  status.value = 'alerting'
-  stopTicking()
-  remainingSeconds.value = 0
-  startAlertEffects()
-  sendNotification('该休息眼睛了', '离开屏幕，看看远处，让眼睛缓一缓。')
-  await createDesktopAlert()
-  await recordEvent('reminder_triggered')
+  runTimerAction('reset')
 }
 
 function startRest() {
-  stopDesktopAlertPolling()
-  currentDesktopAlertId.value = null
-  stopAlertEffects()
-  status.value = 'resting'
-  remainingSeconds.value = restDurationSeconds()
-  startTicking()
-  recordEvent('rest_started')
+  runTimerAction('start-rest')
 }
 
 function snooze() {
-  stopDesktopAlertPolling()
-  currentDesktopAlertId.value = null
-  stopAlertEffects()
-  status.value = 'running'
-  remainingSeconds.value = settings.snooze_minutes * 60
-  startTicking()
-  recordEvent('snoozed')
+  runTimerAction('snooze')
 }
 
 function skipReminder() {
-  stopDesktopAlertPolling()
-  currentDesktopAlertId.value = null
-  stopAlertEffects()
-  status.value = 'running'
-  remainingSeconds.value = settings.reminder_interval_minutes * 60
-  startTicking()
-  recordEvent('skipped')
-}
-
-function finishRest() {
-  status.value = 'running'
-  remainingSeconds.value = settings.reminder_interval_minutes * 60
-  startTicking()
-  sendNotification('休息结束', '新的护眼计时已经开始。')
-  recordEvent('rest_completed')
+  runTimerAction('skip')
 }
 
 async function unlockAudio() {
@@ -399,12 +290,18 @@ function sendNotification(title, body) {
         <button
           class="primary"
           type="button"
-          :disabled="!settingsLoaded || status === 'running' || status === 'resting' || status === 'alerting'"
+          :disabled="!settingsLoaded || timer.status === 'running' || timer.status === 'resting' || timer.status === 'alerting'"
           @click="startTimer"
         >
           {{ primaryActionLabel }}
         </button>
-        <button type="button" :disabled="status !== 'running' && status !== 'resting'" @click="pauseTimer">暂停</button>
+        <button
+          type="button"
+          :disabled="timer.status !== 'running' && timer.status !== 'resting' && timer.status !== 'alerting'"
+          @click="pauseTimer"
+        >
+          暂停
+        </button>
         <button type="button" @click="resetTimer">重置</button>
       </div>
     </section>
@@ -450,7 +347,7 @@ function sendNotification(title, body) {
       </div>
     </section>
 
-    <div v-if="status === 'alerting'" class="alert-overlay" role="dialog" aria-modal="true" aria-labelledby="alert-title">
+    <div v-if="timer.status === 'alerting'" class="alert-overlay" role="dialog" aria-modal="true" aria-labelledby="alert-title">
       <div class="alert-content">
         <p class="eyebrow">强提醒</p>
         <h2 id="alert-title">该休息眼睛了</h2>

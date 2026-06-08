@@ -115,7 +115,7 @@ class DesktopReminder:
     def close_alert(self, window: tk.Toplevel, alert_id: int) -> None:
         if window.winfo_exists():
             window.destroy()
-        self.update_alert_status(alert_id, "closed")
+        self.update_alert_status(alert_id, "acknowledged")
         self.showing_alert = False
         self.status_var.set("正在监听护眼提醒...")
 

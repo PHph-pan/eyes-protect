@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 RestDurationUnit = Literal["minutes", "seconds"]
-DesktopAlertStatus = Literal["pending", "shown", "closed"]
+TimerStatus = Literal["idle", "running", "alerting", "resting", "paused"]
+DesktopAlertStatus = Literal["pending", "shown", "acknowledged"]
 
 
 class Settings(BaseModel):
@@ -42,7 +43,7 @@ class DesktopAlertCreate(BaseModel):
 
 
 class DesktopAlertStatusUpdate(BaseModel):
-    status: Literal["shown", "closed"]
+    status: Literal["shown", "acknowledged", "closed"]
 
 
 class DesktopAlert(DesktopAlertCreate):
@@ -50,4 +51,14 @@ class DesktopAlert(DesktopAlertCreate):
     status: DesktopAlertStatus
     created_at: str
     shown_at: str | None = None
-    closed_at: str | None = None
+    acknowledged_at: str | None = None
+
+
+class TimerState(BaseModel):
+    status: TimerStatus
+    remaining_seconds: int
+    total_seconds: int
+    paused_from_status: TimerStatus | None = None
+    active_desktop_alert_id: int | None = None
+    phase_started_at: str | None = None
+    phase_ends_at: str | None = None
