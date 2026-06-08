@@ -20,7 +20,8 @@ def test_default_settings_are_returned():
     assert response.status_code == 200
     assert response.json() == {
         "reminder_interval_minutes": 20,
-        "rest_duration_minutes": 5,
+        "rest_duration_value": 5,
+        "rest_duration_unit": "minutes",
         "snooze_minutes": 5,
         "sound_enabled": True,
         "notification_enabled": True,
@@ -30,9 +31,26 @@ def test_default_settings_are_returned():
 def test_settings_can_be_updated():
     payload = {
         "reminder_interval_minutes": 30,
-        "rest_duration_minutes": 8,
+        "rest_duration_value": 8,
+        "rest_duration_unit": "minutes",
         "snooze_minutes": 3,
         "sound_enabled": False,
+        "notification_enabled": True,
+    }
+
+    response = client.put("/api/settings", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == payload
+
+
+def test_rest_duration_can_be_set_in_seconds():
+    payload = {
+        "reminder_interval_minutes": 20,
+        "rest_duration_value": 30,
+        "rest_duration_unit": "seconds",
+        "snooze_minutes": 5,
+        "sound_enabled": True,
         "notification_enabled": True,
     }
 
@@ -47,7 +65,8 @@ def test_invalid_settings_are_rejected():
         "/api/settings",
         json={
             "reminder_interval_minutes": 0,
-            "rest_duration_minutes": 5,
+            "rest_duration_value": 5,
+            "rest_duration_unit": "minutes",
             "snooze_minutes": 5,
             "sound_enabled": True,
             "notification_enabled": True,

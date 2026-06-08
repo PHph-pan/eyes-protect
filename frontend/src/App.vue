@@ -4,7 +4,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 const originalTitle = document.title
 const settings = reactive({
   reminder_interval_minutes: 20,
-  rest_duration_minutes: 5,
+  rest_duration_value: 5,
+  rest_duration_unit: 'minutes',
   snooze_minutes: 5,
   sound_enabled: true,
   notification_enabled: true,
@@ -31,6 +32,7 @@ const statusLabel = computed(() => {
 })
 
 const primaryActionLabel = computed(() => (status.value === 'paused' ? '继续' : '启动'))
+const restDurationMax = computed(() => (settings.rest_duration_unit === 'seconds' ? 3600 : 60))
 
 const formattedRemaining = computed(() => {
   const minutes = Math.floor(remainingSeconds.value / 60)
@@ -49,6 +51,15 @@ watch(
   () => {
     if (status.value === 'idle') {
       remainingSeconds.value = settings.reminder_interval_minutes * 60
+    }
+  },
+)
+
+watch(
+  () => settings.rest_duration_unit,
+  () => {
+    if (settings.rest_duration_value > restDurationMax.value) {
+      settings.rest_duration_value = restDurationMax.value
     }
   },
 )
@@ -156,12 +167,17 @@ function handleTimerComplete() {
 
 function currentCycleSeconds() {
   if (status.value === 'resting' || (status.value === 'paused' && pausedFrom.value === 'resting')) {
-    return settings.rest_duration_minutes * 60
+    return restDurationSeconds()
   }
   if (status.value === 'running' || status.value === 'paused') {
     return settings.reminder_interval_minutes * 60
   }
   return settings.reminder_interval_minutes * 60
+}
+
+function restDurationSeconds() {
+  const value = Number(settings.rest_duration_value) || 1
+  return settings.rest_duration_unit === 'seconds' ? value : value * 60
 }
 
 function stopTicking() {
@@ -191,7 +207,7 @@ async function triggerReminder() {
 function startRest() {
   stopAlertEffects()
   status.value = 'resting'
-  remainingSeconds.value = settings.rest_duration_minutes * 60
+  remainingSeconds.value = restDurationSeconds()
   startTicking()
   recordEvent('rest_started')
 }
@@ -327,8 +343,14 @@ function sendNotification(title, body) {
           <input v-model.number="settings.reminder_interval_minutes" min="1" max="240" type="number" />
         </label>
         <label>
-          <span>休息时长（分钟）</span>
-          <input v-model.number="settings.rest_duration_minutes" min="1" max="60" type="number" />
+          <span>休息时长</span>
+          <div class="duration-input">
+            <input v-model.number="settings.rest_duration_value" min="1" :max="restDurationMax" type="number" />
+            <select v-model="settings.rest_duration_unit" aria-label="休息时长单位">
+              <option value="minutes">分钟</option>
+              <option value="seconds">秒</option>
+            </select>
+          </div>
         </label>
         <label>
           <span>稍后提醒（分钟）</span>

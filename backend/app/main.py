@@ -30,7 +30,8 @@ def on_startup() -> None:
 def row_to_settings(row) -> Settings:
     return Settings(
         reminder_interval_minutes=row["reminder_interval_minutes"],
-        rest_duration_minutes=row["rest_duration_minutes"],
+        rest_duration_value=row["rest_duration_value"],
+        rest_duration_unit=row["rest_duration_unit"],
         snooze_minutes=row["snooze_minutes"],
         sound_enabled=bool(row["sound_enabled"]),
         notification_enabled=bool(row["notification_enabled"]),
@@ -52,7 +53,8 @@ def update_settings(settings: Settings) -> Settings:
     row = save_settings(
         {
             "reminder_interval_minutes": settings.reminder_interval_minutes,
-            "rest_duration_minutes": settings.rest_duration_minutes,
+            "rest_duration_value": settings.rest_duration_value,
+            "rest_duration_unit": settings.rest_duration_unit,
             "snooze_minutes": settings.snooze_minutes,
             "sound_enabled": int(settings.sound_enabled),
             "notification_enabled": int(settings.notification_enabled),

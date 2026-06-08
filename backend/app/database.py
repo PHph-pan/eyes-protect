@@ -14,7 +14,8 @@ DB_PATH = DATA_DIR / "eyes_protect.db"
 DEFAULT_SETTINGS = {
     "id": 1,
     "reminder_interval_minutes": 20,
-    "rest_duration_minutes": 5,
+    "rest_duration_value": 5,
+    "rest_duration_unit": "minutes",
     "snooze_minutes": 5,
     "sound_enabled": 1,
     "notification_enabled": 1,
@@ -41,7 +42,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 reminder_interval_minutes INTEGER NOT NULL,
-                rest_duration_minutes INTEGER NOT NULL,
+                rest_duration_value INTEGER NOT NULL,
+                rest_duration_unit TEXT NOT NULL CHECK (rest_duration_unit IN ('minutes', 'seconds')),
                 snooze_minutes INTEGER NOT NULL,
                 sound_enabled INTEGER NOT NULL CHECK (sound_enabled IN (0, 1)),
                 notification_enabled INTEGER NOT NULL CHECK (notification_enabled IN (0, 1)),
@@ -59,19 +61,41 @@ def init_db() -> None:
             )
             """
         )
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO settings (
-                id,
-                reminder_interval_minutes,
-                rest_duration_minutes,
-                snooze_minutes,
-                sound_enabled,
-                notification_enabled
-            ) VALUES (:id, :reminder_interval_minutes, :rest_duration_minutes, :snooze_minutes, :sound_enabled, :notification_enabled)
-            """,
-            DEFAULT_SETTINGS,
-        )
+        ensure_settings_columns(conn)
+        insert_default_settings(conn)
+
+
+def ensure_settings_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
+    if "rest_duration_value" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN rest_duration_value INTEGER NOT NULL DEFAULT 5")
+        if "rest_duration_minutes" in columns:
+            conn.execute("UPDATE settings SET rest_duration_value = rest_duration_minutes WHERE id = 1")
+    if "rest_duration_unit" not in columns:
+        conn.execute("ALTER TABLE settings ADD COLUMN rest_duration_unit TEXT NOT NULL DEFAULT 'minutes'")
+
+
+def insert_default_settings(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
+    insert_columns = [
+        "id",
+        "reminder_interval_minutes",
+        "rest_duration_value",
+        "rest_duration_unit",
+        "snooze_minutes",
+        "sound_enabled",
+        "notification_enabled",
+    ]
+    values = dict(DEFAULT_SETTINGS)
+    if "rest_duration_minutes" in columns:
+        insert_columns.append("rest_duration_minutes")
+        values["rest_duration_minutes"] = DEFAULT_SETTINGS["rest_duration_value"]
+    placeholders = ", ".join(f":{column}" for column in insert_columns)
+    column_names = ", ".join(insert_columns)
+    conn.execute(
+        f"INSERT OR IGNORE INTO settings ({column_names}) VALUES ({placeholders})",
+        values,
+    )
 
 
 def fetch_settings() -> sqlite3.Row:
@@ -89,7 +113,8 @@ def save_settings(settings: dict[str, int]) -> sqlite3.Row:
             UPDATE settings
             SET
                 reminder_interval_minutes = :reminder_interval_minutes,
-                rest_duration_minutes = :rest_duration_minutes,
+                rest_duration_value = :rest_duration_value,
+                rest_duration_unit = :rest_duration_unit,
                 snooze_minutes = :snooze_minutes,
                 sound_enabled = :sound_enabled,
                 notification_enabled = :notification_enabled,
