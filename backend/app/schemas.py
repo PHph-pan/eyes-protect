@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 RestDurationUnit = Literal["minutes", "seconds"]
+DesktopAlertStatus = Literal["pending", "shown", "closed"]
 
 
 class Settings(BaseModel):
@@ -33,3 +34,20 @@ class EventCreate(BaseModel):
 class Event(EventCreate):
     id: int
     created_at: str
+
+
+class DesktopAlertCreate(BaseModel):
+    title: str = Field("该休息眼睛了", min_length=1, max_length=80)
+    message: str = Field("请离开屏幕，眺望远处，给眼睛一次真正的缓冲。", min_length=1, max_length=240)
+
+
+class DesktopAlertStatusUpdate(BaseModel):
+    status: Literal["shown", "closed"]
+
+
+class DesktopAlert(DesktopAlertCreate):
+    id: int
+    status: DesktopAlertStatus
+    created_at: str
+    shown_at: str | None = None
+    closed_at: str | None = None

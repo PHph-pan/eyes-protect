@@ -61,6 +61,19 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS desktop_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'shown', 'closed')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                shown_at TEXT,
+                closed_at TEXT
+            )
+            """
+        )
         ensure_settings_columns(conn)
         insert_default_settings(conn)
 
@@ -136,4 +149,48 @@ def insert_event(event_type: str, note: str | None) -> sqlite3.Row:
         return conn.execute(
             "SELECT * FROM reminder_events WHERE id = ?",
             (cursor.lastrowid,),
+        ).fetchone()
+
+
+def insert_desktop_alert(title: str, message: str) -> sqlite3.Row:
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO desktop_alerts (title, message) VALUES (?, ?)",
+            (title, message),
+        )
+        return conn.execute(
+            "SELECT * FROM desktop_alerts WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+
+
+def fetch_pending_desktop_alerts() -> list[sqlite3.Row]:
+    init_db()
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM desktop_alerts
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 5
+            """
+        ).fetchall()
+
+
+def update_desktop_alert_status(alert_id: int, status: str) -> sqlite3.Row | None:
+    init_db()
+    timestamp_column = "shown_at" if status == "shown" else "closed_at"
+    with get_connection() as conn:
+        conn.execute(
+            f"""
+            UPDATE desktop_alerts
+            SET status = ?, {timestamp_column} = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (status, alert_id),
+        )
+        return conn.execute(
+            "SELECT * FROM desktop_alerts WHERE id = ?",
+            (alert_id,),
         ).fetchone()

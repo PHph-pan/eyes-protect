@@ -119,6 +119,21 @@ async function recordEvent(event_type, note = '') {
   }
 }
 
+async function createDesktopAlert() {
+  try {
+    await fetch('/api/desktop-alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '该休息眼睛了',
+        message: '请离开屏幕，眺望远处，给眼睛一次真正的缓冲。',
+      }),
+    })
+  } catch {
+    // The in-page alert remains active even if the desktop companion is not running.
+  }
+}
+
 async function startTimer() {
   await unlockAudio()
   await requestNotificationPermission()
@@ -201,6 +216,7 @@ async function triggerReminder() {
   remainingSeconds.value = 0
   startAlertEffects()
   sendNotification('该休息眼睛了', '离开屏幕，看看远处，让眼睛缓一缓。')
+  await createDesktopAlert()
   await recordEvent('reminder_triggered')
 }
 

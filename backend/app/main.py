@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import fetch_settings, init_db, insert_event, save_settings
-from .schemas import Event, EventCreate, Settings
+from .database import (
+    fetch_pending_desktop_alerts,
+    fetch_settings,
+    init_db,
+    insert_desktop_alert,
+    insert_event,
+    save_settings,
+    update_desktop_alert_status,
+)
+from .schemas import DesktopAlert, DesktopAlertCreate, DesktopAlertStatusUpdate, Event, EventCreate, Settings
 
 
 app = FastAPI(title="Eyes Protect API")
@@ -67,3 +75,33 @@ def update_settings(settings: Settings) -> Settings:
 def create_event(event: EventCreate) -> Event:
     row = insert_event(event.event_type, event.note)
     return Event(id=row["id"], event_type=row["event_type"], note=row["note"], created_at=row["created_at"])
+
+
+def row_to_desktop_alert(row) -> DesktopAlert:
+    return DesktopAlert(
+        id=row["id"],
+        title=row["title"],
+        message=row["message"],
+        status=row["status"],
+        created_at=row["created_at"],
+        shown_at=row["shown_at"],
+        closed_at=row["closed_at"],
+    )
+
+
+@app.post("/api/desktop-alerts", response_model=DesktopAlert)
+def create_desktop_alert(alert: DesktopAlertCreate) -> DesktopAlert:
+    return row_to_desktop_alert(insert_desktop_alert(alert.title, alert.message))
+
+
+@app.get("/api/desktop-alerts/pending", response_model=list[DesktopAlert])
+def get_pending_desktop_alerts() -> list[DesktopAlert]:
+    return [row_to_desktop_alert(row) for row in fetch_pending_desktop_alerts()]
+
+
+@app.patch("/api/desktop-alerts/{alert_id}", response_model=DesktopAlert)
+def update_desktop_alert(alert_id: int, update: DesktopAlertStatusUpdate) -> DesktopAlert:
+    row = update_desktop_alert_status(alert_id, update.status)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Desktop alert not found")
+    return row_to_desktop_alert(row)
