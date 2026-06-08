@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 RestDurationUnit = Literal["minutes", "seconds"]
@@ -62,8 +62,51 @@ class TimerState(BaseModel):
     active_desktop_alert_id: int | None = None
     phase_started_at: str | None = None
     phase_ends_at: str | None = None
+    do_not_disturb_active: bool = False
+    do_not_disturb_until: str | None = None
+    do_not_disturb_period_name: str | None = None
 
 
 class DesktopCompanionHealth(BaseModel):
     connected: bool
     last_seen_at: str | None = None
+
+
+class DoNotDisturbPeriodInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=40)
+    start_time: str
+    end_time: str
+    enabled: bool = True
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_time(cls, value: str) -> str:
+        parts = value.split(":")
+        if len(parts) != 2:
+            raise ValueError("time must be HH:MM")
+        hour, minute = parts
+        if not (hour.isdigit() and minute.isdigit()):
+            raise ValueError("time must be HH:MM")
+        hour_number = int(hour)
+        minute_number = int(minute)
+        if hour_number < 0 or hour_number > 23 or minute_number < 0 or minute_number > 59:
+            raise ValueError("time must be HH:MM")
+        return f"{hour_number:02d}:{minute_number:02d}"
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "DoNotDisturbPeriodInput":
+        if self.start_time == self.end_time:
+            raise ValueError("start_time and end_time cannot be the same")
+        return self
+
+
+class DoNotDisturbPeriod(DoNotDisturbPeriodInput):
+    id: int
+
+
+class DoNotDisturbSettings(BaseModel):
+    periods: list[DoNotDisturbPeriodInput] = Field(default_factory=list, max_length=8)
+
+
+class DoNotDisturbSettingsResponse(BaseModel):
+    periods: list[DoNotDisturbPeriod]

@@ -167,7 +167,9 @@ label span {
   font-weight: 700;
 }
 
-input[type="number"] {
+input[type="number"],
+input[type="text"],
+input[type="time"] {
   width: 100%;
   min-height: 44px;
   border: 1px solid #bdcbc4;
@@ -224,6 +226,59 @@ select {
   margin: 0;
   color: #b42318;
   font-weight: 700;
+}
+
+.dnd-active {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 20px 12px;
+  border: 1px solid #f5d58a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #7a4a00;
+  background: #fff8dc;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.dnd-panel {
+  margin-top: 28px;
+  border-top: 1px solid #d4ddd8;
+  padding-top: 24px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.muted {
+  margin: 0 0 16px;
+  color: #66756d;
+}
+
+.dnd-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 132px 132px 86px auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.dnd-toggle {
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
 }
 
 .alert-overlay {
@@ -297,6 +352,19 @@ select {
   }
 
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dnd-active {
+    margin-left: 0;
+  }
+
+  .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dnd-row {
     grid-template-columns: 1fr;
   }
 

@@ -7,11 +7,13 @@ from datetime import datetime, timezone
 from .database import (
     fetch_desktop_alert,
     fetch_desktop_companion_health,
+    fetch_do_not_disturb_periods,
     fetch_pending_desktop_alerts,
     fetch_settings,
     init_db,
     insert_desktop_alert,
     insert_event,
+    replace_do_not_disturb_periods,
     save_settings,
     touch_desktop_companion,
     update_desktop_alert_status,
@@ -21,6 +23,9 @@ from .schemas import (
     DesktopAlertCreate,
     DesktopAlertStatusUpdate,
     DesktopCompanionHealth,
+    DoNotDisturbPeriod,
+    DoNotDisturbSettings,
+    DoNotDisturbSettingsResponse,
     Event,
     EventCreate,
     Settings,
@@ -97,6 +102,29 @@ def update_settings(settings: Settings) -> Settings:
     return row_to_settings(row)
 
 
+@app.get("/api/do-not-disturb", response_model=DoNotDisturbSettingsResponse)
+def get_do_not_disturb_settings() -> DoNotDisturbSettingsResponse:
+    return DoNotDisturbSettingsResponse(
+        periods=[row_to_do_not_disturb_period(row) for row in fetch_do_not_disturb_periods()]
+    )
+
+
+@app.put("/api/do-not-disturb", response_model=DoNotDisturbSettingsResponse)
+def update_do_not_disturb_settings(settings: DoNotDisturbSettings) -> DoNotDisturbSettingsResponse:
+    rows = replace_do_not_disturb_periods(
+        [
+            {
+                "name": period.name,
+                "start_time": period.start_time,
+                "end_time": period.end_time,
+                "enabled": int(period.enabled),
+            }
+            for period in settings.periods
+        ]
+    )
+    return DoNotDisturbSettingsResponse(periods=[row_to_do_not_disturb_period(row) for row in rows])
+
+
 @app.post("/api/events", response_model=Event)
 def create_event(event: EventCreate) -> Event:
     row = insert_event(event.event_type, event.note)
@@ -124,6 +152,16 @@ def row_to_desktop_companion_health(row) -> DesktopCompanionHealth:
             seen_at = seen_at.replace(tzinfo=timezone.utc)
         connected = (datetime.now(timezone.utc) - seen_at).total_seconds() <= DESKTOP_COMPANION_TIMEOUT_SECONDS
     return DesktopCompanionHealth(connected=connected, last_seen_at=last_seen_at)
+
+
+def row_to_do_not_disturb_period(row) -> DoNotDisturbPeriod:
+    return DoNotDisturbPeriod(
+        id=row["id"],
+        name=row["name"],
+        start_time=row["start_time"],
+        end_time=row["end_time"],
+        enabled=bool(row["enabled"]),
+    )
 
 
 @app.post("/api/desktop-alerts", response_model=DesktopAlert)

@@ -10,6 +10,18 @@ from app.main import app
 client = TestClient(app)
 
 
+def active_period_payload(name="当前勿扰"):
+    now = datetime.now().astimezone()
+    start = now - timedelta(minutes=5)
+    end = now + timedelta(minutes=5)
+    return {
+        "name": name,
+        "start_time": start.strftime("%H:%M"),
+        "end_time": end.strftime("%H:%M"),
+        "enabled": True,
+    }
+
+
 @pytest.fixture(autouse=True)
 def isolated_db(monkeypatch, tmp_path):
     monkeypatch.setenv("EYES_PROTECT_DB_PATH", str(tmp_path / "test.db"))
@@ -179,6 +191,57 @@ def test_desktop_companion_heartbeat_marks_connected():
     assert status_response.json()["last_seen_at"] == heartbeat["last_seen_at"]
 
 
+def test_do_not_disturb_settings_can_be_saved_and_read():
+    payload = {
+        "periods": [
+            {
+                "name": "午休",
+                "start_time": "12:00",
+                "end_time": "13:30",
+                "enabled": True,
+            },
+            {
+                "name": "会议",
+                "start_time": "15:00",
+                "end_time": "16:00",
+                "enabled": False,
+            },
+        ]
+    }
+
+    response = client.put("/api/do-not-disturb", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["periods"]) == 2
+    assert body["periods"][0]["name"] == "午休"
+    assert body["periods"][0]["start_time"] == "12:00"
+    assert body["periods"][0]["end_time"] == "13:30"
+    assert body["periods"][0]["enabled"] is True
+
+    read_response = client.get("/api/do-not-disturb")
+    assert read_response.status_code == 200
+    assert read_response.json() == body
+
+
+def test_do_not_disturb_rejects_invalid_periods():
+    response = client.put(
+        "/api/do-not-disturb",
+        json={
+            "periods": [
+                {
+                    "name": "无效时段",
+                    "start_time": "12:00",
+                    "end_time": "12:00",
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_timer_start_pause_resume_and_reset():
     start_response = client.post("/api/timer/start")
     assert start_response.status_code == 200
@@ -257,6 +320,36 @@ def test_pending_desktop_alerts_advances_expired_timer_without_frontend():
     assert timer_response.status_code == 200
     assert timer_response.json()["status"] == "alerting"
     assert timer_response.json()["active_desktop_alert_id"] == pending[0]["id"]
+
+
+def test_do_not_disturb_postpones_expired_timer_without_desktop_alert():
+    client.put("/api/do-not-disturb", json={"periods": [active_period_payload("会议")]})
+    past = datetime.now(timezone.utc) - timedelta(seconds=2)
+    save_timer_state_row(
+        {
+            "status": "running",
+            "phase_started_at": (past - timedelta(seconds=1)).isoformat(),
+            "phase_ends_at": past.isoformat(),
+            "total_seconds": 1,
+            "paused_remaining_seconds": None,
+            "paused_from_status": None,
+            "active_desktop_alert_id": None,
+        }
+    )
+
+    response = client.get("/api/timer")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["active_desktop_alert_id"] is None
+    assert body["do_not_disturb_active"] is True
+    assert body["do_not_disturb_period_name"] == "会议"
+    assert body["remaining_seconds"] > 0
+
+    pending_response = client.get("/api/desktop-alerts/pending")
+    assert pending_response.status_code == 200
+    assert pending_response.json() == []
 
 
 def test_acknowledged_desktop_alert_starts_rest_phase():

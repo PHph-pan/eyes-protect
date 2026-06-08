@@ -84,6 +84,19 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS do_not_disturb_periods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         create_desktop_alerts_table(conn)
         ensure_desktop_alert_statuses(conn)
         ensure_settings_columns(conn)
@@ -268,6 +281,37 @@ def fetch_desktop_companion_health() -> sqlite3.Row:
     init_db()
     with get_connection() as conn:
         return conn.execute("SELECT * FROM desktop_companion_health WHERE id = 1").fetchone()
+
+
+def fetch_do_not_disturb_periods() -> list[sqlite3.Row]:
+    init_db()
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM do_not_disturb_periods
+            ORDER BY start_time ASC, id ASC
+            """
+        ).fetchall()
+
+
+def replace_do_not_disturb_periods(periods: list[dict[str, object]]) -> list[sqlite3.Row]:
+    init_db()
+    with get_connection() as conn:
+        conn.execute("DELETE FROM do_not_disturb_periods")
+        for period in periods:
+            conn.execute(
+                """
+                INSERT INTO do_not_disturb_periods (name, start_time, end_time, enabled)
+                VALUES (:name, :start_time, :end_time, :enabled)
+                """,
+                period,
+            )
+        return conn.execute(
+            """
+            SELECT * FROM do_not_disturb_periods
+            ORDER BY start_time ASC, id ASC
+            """
+        ).fetchall()
 
 
 def insert_desktop_alert(title: str, message: str) -> sqlite3.Row:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from math import ceil
 from typing import Any
 
 from .database import (
+    fetch_do_not_disturb_periods,
     fetch_settings,
     fetch_timer_state_row,
     insert_desktop_alert,
@@ -16,6 +17,10 @@ from .database import (
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def local_now() -> datetime:
+    return datetime.now().astimezone()
 
 
 def to_iso(value: datetime | None) -> str | None:
@@ -38,6 +43,46 @@ def settings_rest_seconds(settings) -> int:
 
 def settings_work_seconds(settings) -> int:
     return int(settings["reminder_interval_minutes"]) * 60
+
+
+def parse_hhmm(value: str) -> time:
+    hour, minute = value.split(":")
+    return time(hour=int(hour), minute=int(minute))
+
+
+def combine_local(day: datetime, value: str) -> datetime:
+    return datetime.combine(day.date(), parse_hhmm(value), tzinfo=day.tzinfo)
+
+
+def active_do_not_disturb_period(now: datetime | None = None) -> dict[str, Any] | None:
+    current = now or local_now()
+    for period in fetch_do_not_disturb_periods():
+        if not bool(period["enabled"]):
+            continue
+
+        start = parse_hhmm(period["start_time"])
+        end = parse_hhmm(period["end_time"])
+        current_time = current.time().replace(second=0, microsecond=0)
+
+        if start < end:
+            if start <= current_time < end:
+                return {
+                    "name": period["name"],
+                    "until": combine_local(current, period["end_time"]),
+                }
+            continue
+
+        if current_time >= start:
+            return {
+                "name": period["name"],
+                "until": combine_local(current + timedelta(days=1), period["end_time"]),
+            }
+        if current_time < end:
+            return {
+                "name": period["name"],
+                "until": combine_local(current, period["end_time"]),
+            }
+    return None
 
 
 def row_to_dict(row) -> dict[str, Any]:
@@ -66,6 +111,7 @@ def remaining_seconds(row, now: datetime | None = None) -> int:
 
 def timer_response(row) -> dict[str, Any]:
     current = utc_now()
+    dnd = active_do_not_disturb_period()
     return {
         "status": row["status"],
         "remaining_seconds": remaining_seconds(row, current),
@@ -74,6 +120,9 @@ def timer_response(row) -> dict[str, Any]:
         "active_desktop_alert_id": row["active_desktop_alert_id"],
         "phase_started_at": row["phase_started_at"],
         "phase_ends_at": row["phase_ends_at"],
+        "do_not_disturb_active": dnd is not None,
+        "do_not_disturb_until": to_iso(dnd["until"]) if dnd else None,
+        "do_not_disturb_period_name": dnd["name"] if dnd else None,
     }
 
 
@@ -140,6 +189,10 @@ def start_rest_phase():
 
 
 def enter_alerting(row):
+    dnd = active_do_not_disturb_period()
+    if dnd:
+        return postpone_for_do_not_disturb(row, dnd)
+
     alert_id = row["active_desktop_alert_id"]
     if not alert_id:
         alert = insert_desktop_alert("该休息眼睛了", "请离开屏幕，眺望远处，给眼睛一次真正的缓冲。")
@@ -152,9 +205,28 @@ def enter_alerting(row):
     )
 
 
+def postpone_for_do_not_disturb(row, dnd: dict[str, Any]):
+    acknowledge_active_alert(row)
+    until = dnd["until"]
+    now = local_now()
+    seconds_until = max(1, ceil((until - now).total_seconds()))
+    insert_event("do_not_disturb_postponed", f"postponed until {to_iso(until)}")
+    return save_state(
+        "running",
+        total_seconds=seconds_until,
+        phase_started_at=utc_now(),
+        phase_ends_at=until.astimezone(timezone.utc),
+    )
+
+
 def advance_timer_state():
     row = fetch_timer_state_row()
     status = row["status"]
+    if status == "alerting":
+        dnd = active_do_not_disturb_period()
+        if dnd:
+            return postpone_for_do_not_disturb(row, dnd)
+        return row
     if status not in {"running", "resting"}:
         return row
     if remaining_seconds(row) > 0:

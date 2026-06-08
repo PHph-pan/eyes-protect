@@ -17,6 +17,9 @@ const timer = reactive({
   total_seconds: 0,
   paused_from_status: null,
   active_desktop_alert_id: null,
+  do_not_disturb_active: false,
+  do_not_disturb_until: null,
+  do_not_disturb_period_name: null,
 })
 
 const desktopCompanion = reactive({
@@ -24,8 +27,13 @@ const desktopCompanion = reactive({
   last_seen_at: null,
 })
 
+const doNotDisturb = reactive({
+  periods: [],
+})
+
 const settingsLoaded = ref(false)
 const saving = ref(false)
+const savingDoNotDisturb = ref(false)
 const error = ref('')
 const audioContext = ref(null)
 const oscillator = ref(null)
@@ -45,6 +53,10 @@ const statusLabel = computed(() => {
 const primaryActionLabel = computed(() => (timer.status === 'paused' ? '继续' : '启动'))
 const restDurationMax = computed(() => (settings.rest_duration_unit === 'seconds' ? 3600 : 60))
 const desktopCompanionLabel = computed(() => (desktopCompanion.connected ? '已连接' : '未连接'))
+const doNotDisturbLabel = computed(() => {
+  if (!timer.do_not_disturb_active) return ''
+  return timer.do_not_disturb_period_name ? `请勿打扰中：${timer.do_not_disturb_period_name}` : '请勿打扰中'
+})
 const displayTotalSeconds = computed(() => timer.total_seconds || settings.reminder_interval_minutes * 60)
 const displayRemainingSeconds = computed(() => {
   if (timer.status === 'idle') return settings.reminder_interval_minutes * 60
@@ -83,6 +95,7 @@ watch(
 
 onMounted(async () => {
   await loadSettings()
+  await loadDoNotDisturbSettings()
   await fetchTimerState()
   await fetchDesktopCompanionStatus()
   startPollingTimer()
@@ -122,6 +135,57 @@ async function saveSettings() {
   } finally {
     saving.value = false
   }
+}
+
+async function loadDoNotDisturbSettings() {
+  try {
+    const response = await fetch('/api/do-not-disturb')
+    if (!response.ok) throw new Error('读取请勿打扰设置失败')
+    const data = await response.json()
+    doNotDisturb.periods = data.periods
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+async function saveDoNotDisturbSettings() {
+  savingDoNotDisturb.value = true
+  error.value = ''
+  try {
+    const response = await fetch('/api/do-not-disturb', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        periods: doNotDisturb.periods.map(({ name, start_time, end_time, enabled }) => ({
+          name,
+          start_time,
+          end_time,
+          enabled,
+        })),
+      }),
+    })
+    if (!response.ok) throw new Error('保存请勿打扰设置失败')
+    const data = await response.json()
+    doNotDisturb.periods = data.periods
+    await fetchTimerState()
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    savingDoNotDisturb.value = false
+  }
+}
+
+function addDoNotDisturbPeriod() {
+  doNotDisturb.periods.push({
+    name: '请勿打扰',
+    start_time: '12:00',
+    end_time: '13:00',
+    enabled: true,
+  })
+}
+
+function removeDoNotDisturbPeriod(index) {
+  doNotDisturb.periods.splice(index, 1)
 }
 
 function startPollingTimer() {
@@ -331,6 +395,10 @@ function sendNotification(title, body) {
         <span>桌面伴侣：{{ desktopCompanionLabel }}</span>
       </div>
 
+      <div v-if="timer.do_not_disturb_active" class="dnd-active">
+        {{ doNotDisturbLabel }}
+      </div>
+
       <div class="field-grid">
         <label>
           <span>提醒间隔（分钟）</span>
@@ -368,6 +436,41 @@ function sendNotification(title, body) {
           {{ saving ? '保存中' : '保存设置' }}
         </button>
         <p v-if="error" class="error">{{ error }}</p>
+      </div>
+
+      <div class="dnd-panel">
+        <div class="section-heading">
+          <h2>请勿打扰时段</h2>
+          <button type="button" @click="addDoNotDisturbPeriod">新增时段</button>
+        </div>
+
+        <p v-if="doNotDisturb.periods.length === 0" class="muted">暂无请勿打扰时段。</p>
+
+        <div v-for="(period, index) in doNotDisturb.periods" :key="period.id || index" class="dnd-row">
+          <label>
+            <span>名称</span>
+            <input v-model.trim="period.name" maxlength="40" type="text" />
+          </label>
+          <label>
+            <span>开始</span>
+            <input v-model="period.start_time" type="time" />
+          </label>
+          <label>
+            <span>结束</span>
+            <input v-model="period.end_time" type="time" />
+          </label>
+          <label class="toggle dnd-toggle">
+            <input v-model="period.enabled" type="checkbox" />
+            <span>启用</span>
+          </label>
+          <button type="button" @click="removeDoNotDisturbPeriod(index)">删除</button>
+        </div>
+
+        <div class="save-row">
+          <button type="button" :disabled="savingDoNotDisturb" @click="saveDoNotDisturbSettings">
+            {{ savingDoNotDisturb ? '保存中' : '保存请勿打扰' }}
+          </button>
+        </div>
       </div>
     </section>
 
