@@ -64,6 +64,15 @@ watch(
   },
 )
 
+watch(
+  () => settings.sound_enabled,
+  (enabled) => {
+    if (!enabled) {
+      stopSound()
+    }
+  },
+)
+
 onMounted(async () => {
   await loadSettings()
 })
@@ -377,7 +386,7 @@ function sendNotification(title, body) {
       <div class="toggle-row">
         <label class="toggle">
           <input v-model="settings.sound_enabled" type="checkbox" />
-          <span>声音提醒</span>
+          <span>声音提醒（蜂鸣）</span>
         </label>
         <label class="toggle">
           <input v-model="settings.notification_enabled" type="checkbox" />

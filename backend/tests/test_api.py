@@ -43,6 +43,10 @@ def test_settings_can_be_updated():
     assert response.status_code == 200
     assert response.json() == payload
 
+    persisted_response = client.get("/api/settings")
+    assert persisted_response.status_code == 200
+    assert persisted_response.json()["sound_enabled"] is False
+
 
 def test_rest_duration_can_be_set_in_seconds():
     payload = {
