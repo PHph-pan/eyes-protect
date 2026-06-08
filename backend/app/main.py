@@ -2,18 +2,30 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime, timezone
 
 from .database import (
     fetch_desktop_alert,
+    fetch_desktop_companion_health,
     fetch_pending_desktop_alerts,
     fetch_settings,
     init_db,
     insert_desktop_alert,
     insert_event,
     save_settings,
+    touch_desktop_companion,
     update_desktop_alert_status,
 )
-from .schemas import DesktopAlert, DesktopAlertCreate, DesktopAlertStatusUpdate, Event, EventCreate, Settings, TimerState
+from .schemas import (
+    DesktopAlert,
+    DesktopAlertCreate,
+    DesktopAlertStatusUpdate,
+    DesktopCompanionHealth,
+    Event,
+    EventCreate,
+    Settings,
+    TimerState,
+)
 from .timer_service import (
     acknowledge_desktop_alert,
     get_timer_state,
@@ -40,6 +52,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+DESKTOP_COMPANION_TIMEOUT_SECONDS = 5
 
 
 @app.on_event("startup")
@@ -101,6 +115,17 @@ def row_to_desktop_alert(row) -> DesktopAlert:
     )
 
 
+def row_to_desktop_companion_health(row) -> DesktopCompanionHealth:
+    last_seen_at = row["last_seen_at"]
+    connected = False
+    if last_seen_at:
+        seen_at = datetime.fromisoformat(last_seen_at.replace("Z", "+00:00"))
+        if seen_at.tzinfo is None:
+            seen_at = seen_at.replace(tzinfo=timezone.utc)
+        connected = (datetime.now(timezone.utc) - seen_at).total_seconds() <= DESKTOP_COMPANION_TIMEOUT_SECONDS
+    return DesktopCompanionHealth(connected=connected, last_seen_at=last_seen_at)
+
+
 @app.post("/api/desktop-alerts", response_model=DesktopAlert)
 def create_desktop_alert(alert: DesktopAlertCreate) -> DesktopAlert:
     return row_to_desktop_alert(insert_desktop_alert(alert.title, alert.message))
@@ -128,6 +153,16 @@ def update_desktop_alert(alert_id: int, update: DesktopAlertStatusUpdate) -> Des
     if row["status"] == "acknowledged":
         acknowledge_desktop_alert(alert_id)
     return row_to_desktop_alert(row)
+
+
+@app.post("/api/desktop-companion/heartbeat", response_model=DesktopCompanionHealth)
+def desktop_companion_heartbeat() -> DesktopCompanionHealth:
+    return row_to_desktop_companion_health(touch_desktop_companion())
+
+
+@app.get("/api/desktop-companion/status", response_model=DesktopCompanionHealth)
+def desktop_companion_status() -> DesktopCompanionHealth:
+    return row_to_desktop_companion_health(fetch_desktop_companion_health())
 
 
 @app.get("/api/timer", response_model=TimerState)

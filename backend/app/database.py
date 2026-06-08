@@ -76,11 +76,20 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS desktop_companion_health (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_seen_at TEXT
+            )
+            """
+        )
         create_desktop_alerts_table(conn)
         ensure_desktop_alert_statuses(conn)
         ensure_settings_columns(conn)
         insert_default_settings(conn)
         insert_default_timer_state(conn)
+        insert_default_desktop_companion_health(conn)
 
 
 def ensure_settings_columns(conn: sqlite3.Connection) -> None:
@@ -148,6 +157,10 @@ def ensure_desktop_alert_statuses(conn: sqlite3.Connection) -> None:
 
 def insert_default_timer_state(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT OR IGNORE INTO timer_state (id, status) VALUES (1, 'idle')")
+
+
+def insert_default_desktop_companion_health(conn: sqlite3.Connection) -> None:
+    conn.execute("INSERT OR IGNORE INTO desktop_companion_health (id, last_seen_at) VALUES (1, NULL)")
 
 
 def insert_default_settings(conn: sqlite3.Connection) -> None:
@@ -240,6 +253,21 @@ def save_timer_state_row(state: dict[str, object]) -> sqlite3.Row:
             state,
         )
         return conn.execute("SELECT * FROM timer_state WHERE id = 1").fetchone()
+
+
+def touch_desktop_companion() -> sqlite3.Row:
+    init_db()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE desktop_companion_health SET last_seen_at = CURRENT_TIMESTAMP WHERE id = 1"
+        )
+        return conn.execute("SELECT * FROM desktop_companion_health WHERE id = 1").fetchone()
+
+
+def fetch_desktop_companion_health() -> sqlite3.Row:
+    init_db()
+    with get_connection() as conn:
+        return conn.execute("SELECT * FROM desktop_companion_health WHERE id = 1").fetchone()
 
 
 def insert_desktop_alert(title: str, message: str) -> sqlite3.Row:

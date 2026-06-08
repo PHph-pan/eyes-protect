@@ -29,17 +29,27 @@ class DesktopReminder:
         self.root.mainloop()
 
     def poll(self) -> None:
-        if not self.showing_alert:
-            try:
+        try:
+            self.send_heartbeat()
+            if not self.showing_alert:
                 alerts = self.fetch_pending_alerts()
                 if alerts:
                     self.show_alert(alerts[0])
                     self.status_var.set("已显示桌面提醒")
                 else:
                     self.status_var.set("正在监听护眼提醒...")
-            except Exception as exc:
-                self.status_var.set(f"连接后端失败，继续重试：{exc}")
+        except Exception as exc:
+            self.status_var.set(f"连接后端失败，继续重试：{exc}")
         self.root.after(POLL_INTERVAL_MS, self.poll)
+
+    def send_heartbeat(self) -> None:
+        req = request.Request(
+            f"{API_BASE_URL}/api/desktop-companion/heartbeat",
+            data=b"",
+            method="POST",
+        )
+        with request.urlopen(req, timeout=1.5):
+            pass
 
     def fetch_pending_alerts(self) -> list[dict]:
         with request.urlopen(f"{API_BASE_URL}/api/desktop-alerts/pending", timeout=1.5) as response:

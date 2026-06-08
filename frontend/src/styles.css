@@ -122,6 +122,37 @@ button:disabled {
   padding: 28px;
 }
 
+.companion-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  border: 1px solid #f0c8c1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #8a241c;
+  background: #fff1ef;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.companion-status.connected {
+  border-color: #b8d8c8;
+  color: #126045;
+  background: #edf8f2;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #d92d20;
+}
+
+.companion-status.connected .status-dot {
+  background: #12b76a;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

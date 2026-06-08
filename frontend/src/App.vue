@@ -19,6 +19,11 @@ const timer = reactive({
   active_desktop_alert_id: null,
 })
 
+const desktopCompanion = reactive({
+  connected: false,
+  last_seen_at: null,
+})
+
 const settingsLoaded = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -39,6 +44,7 @@ const statusLabel = computed(() => {
 
 const primaryActionLabel = computed(() => (timer.status === 'paused' ? '继续' : '启动'))
 const restDurationMax = computed(() => (settings.rest_duration_unit === 'seconds' ? 3600 : 60))
+const desktopCompanionLabel = computed(() => (desktopCompanion.connected ? '已连接' : '未连接'))
 const displayTotalSeconds = computed(() => timer.total_seconds || settings.reminder_interval_minutes * 60)
 const displayRemainingSeconds = computed(() => {
   if (timer.status === 'idle') return settings.reminder_interval_minutes * 60
@@ -78,6 +84,7 @@ watch(
 onMounted(async () => {
   await loadSettings()
   await fetchTimerState()
+  await fetchDesktopCompanionStatus()
   startPollingTimer()
 })
 
@@ -134,8 +141,20 @@ async function fetchTimerState() {
     const response = await fetch('/api/timer')
     if (!response.ok) throw new Error('读取计时状态失败')
     applyTimerState(await response.json())
+    await fetchDesktopCompanionStatus()
   } catch (err) {
     error.value = err.message
+  }
+}
+
+async function fetchDesktopCompanionStatus() {
+  try {
+    const response = await fetch('/api/desktop-companion/status')
+    if (!response.ok) throw new Error('读取桌面伴侣状态失败')
+    Object.assign(desktopCompanion, await response.json())
+  } catch {
+    desktopCompanion.connected = false
+    desktopCompanion.last_seen_at = null
   }
 }
 
@@ -307,6 +326,11 @@ function sendNotification(title, body) {
     </section>
 
     <section class="settings-panel" aria-label="提醒设置">
+      <div class="companion-status" :class="{ connected: desktopCompanion.connected }">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>桌面伴侣：{{ desktopCompanionLabel }}</span>
+      </div>
+
       <div class="field-grid">
         <label>
           <span>提醒间隔（分钟）</span>

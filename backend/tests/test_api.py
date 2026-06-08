@@ -158,6 +158,27 @@ def test_missing_desktop_alert_returns_404():
     assert response.status_code == 404
 
 
+def test_desktop_companion_health_defaults_to_disconnected():
+    response = client.get("/api/desktop-companion/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": False, "last_seen_at": None}
+
+
+def test_desktop_companion_heartbeat_marks_connected():
+    heartbeat_response = client.post("/api/desktop-companion/heartbeat")
+
+    assert heartbeat_response.status_code == 200
+    heartbeat = heartbeat_response.json()
+    assert heartbeat["connected"] is True
+    assert heartbeat["last_seen_at"] is not None
+
+    status_response = client.get("/api/desktop-companion/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["connected"] is True
+    assert status_response.json()["last_seen_at"] == heartbeat["last_seen_at"]
+
+
 def test_timer_start_pause_resume_and_reset():
     start_response = client.post("/api/timer/start")
     assert start_response.status_code == 200

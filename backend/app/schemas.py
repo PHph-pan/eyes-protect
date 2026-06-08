@@ -62,3 +62,8 @@ class TimerState(BaseModel):
     active_desktop_alert_id: int | None = None
     phase_started_at: str | None = None
     phase_ends_at: str | None = None
+
+
+class DesktopCompanionHealth(BaseModel):
+    connected: bool
+    last_seen_at: str | None = None
