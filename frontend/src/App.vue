@@ -22,6 +22,8 @@ const oscillator = ref(null)
 const gainNode = ref(null)
 const titleTimer = ref(null)
 const tickTimer = ref(null)
+const desktopAlertPollTimer = ref(null)
+const currentDesktopAlertId = ref(null)
 
 const statusLabel = computed(() => {
   if (status.value === 'running') return '下一次提醒'
@@ -79,6 +81,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopTimers()
+  stopDesktopAlertPolling()
   stopAlertEffects()
 })
 
@@ -130,7 +133,7 @@ async function recordEvent(event_type, note = '') {
 
 async function createDesktopAlert() {
   try {
-    await fetch('/api/desktop-alerts', {
+    const response = await fetch('/api/desktop-alerts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -138,8 +141,44 @@ async function createDesktopAlert() {
         message: '请离开屏幕，眺望远处，给眼睛一次真正的缓冲。',
       }),
     })
+    if (!response.ok) throw new Error('创建桌面提醒失败')
+    const alert = await response.json()
+    currentDesktopAlertId.value = alert.id
+    startDesktopAlertPolling()
   } catch {
     // The in-page alert remains active even if the desktop companion is not running.
+  }
+}
+
+function startDesktopAlertPolling() {
+  stopDesktopAlertPolling()
+  if (!currentDesktopAlertId.value) return
+  desktopAlertPollTimer.value = window.setInterval(checkDesktopAlertStatus, 1000)
+}
+
+function stopDesktopAlertPolling() {
+  if (desktopAlertPollTimer.value) {
+    window.clearInterval(desktopAlertPollTimer.value)
+    desktopAlertPollTimer.value = null
+  }
+}
+
+async function checkDesktopAlertStatus() {
+  if (!currentDesktopAlertId.value || status.value !== 'alerting') {
+    stopDesktopAlertPolling()
+    return
+  }
+  try {
+    const response = await fetch(`/api/desktop-alerts/${currentDesktopAlertId.value}`)
+    if (!response.ok) return
+    const alert = await response.json()
+    if (alert.status === 'closed' && status.value === 'alerting') {
+      stopDesktopAlertPolling()
+      currentDesktopAlertId.value = null
+      startRest()
+    }
+  } catch {
+    // Keep polling while the page is still in the alerting state.
   }
 }
 
@@ -160,6 +199,7 @@ function pauseTimer() {
   pausedFrom.value = status.value === 'resting' ? 'resting' : 'running'
   status.value = 'paused'
   stopTicking()
+  stopDesktopAlertPolling()
   stopAlertEffects()
   recordEvent('paused')
 }
@@ -168,6 +208,8 @@ function resetTimer() {
   status.value = 'idle'
   remainingSeconds.value = settings.reminder_interval_minutes * 60
   stopTicking()
+  stopDesktopAlertPolling()
+  currentDesktopAlertId.value = null
   stopAlertEffects()
   recordEvent('reset')
 }
@@ -230,6 +272,8 @@ async function triggerReminder() {
 }
 
 function startRest() {
+  stopDesktopAlertPolling()
+  currentDesktopAlertId.value = null
   stopAlertEffects()
   status.value = 'resting'
   remainingSeconds.value = restDurationSeconds()
@@ -238,6 +282,8 @@ function startRest() {
 }
 
 function snooze() {
+  stopDesktopAlertPolling()
+  currentDesktopAlertId.value = null
   stopAlertEffects()
   status.value = 'running'
   remainingSeconds.value = settings.snooze_minutes * 60
@@ -246,6 +292,8 @@ function snooze() {
 }
 
 function skipReminder() {
+  stopDesktopAlertPolling()
+  currentDesktopAlertId.value = null
   stopAlertEffects()
   status.value = 'running'
   remainingSeconds.value = settings.reminder_interval_minutes * 60

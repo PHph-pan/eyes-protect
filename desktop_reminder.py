@@ -94,7 +94,7 @@ class DesktopReminder:
 
         button = tk.Button(
             container,
-            text="我知道了",
+            text="我知道了，开始休息",
             command=lambda: self.close_alert(window, alert_id),
             bg="#ffffff",
             fg="#7f1d1d",

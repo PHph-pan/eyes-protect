@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import (
+    fetch_desktop_alert,
     fetch_pending_desktop_alerts,
     fetch_settings,
     init_db,
@@ -97,6 +98,14 @@ def create_desktop_alert(alert: DesktopAlertCreate) -> DesktopAlert:
 @app.get("/api/desktop-alerts/pending", response_model=list[DesktopAlert])
 def get_pending_desktop_alerts() -> list[DesktopAlert]:
     return [row_to_desktop_alert(row) for row in fetch_pending_desktop_alerts()]
+
+
+@app.get("/api/desktop-alerts/{alert_id}", response_model=DesktopAlert)
+def get_desktop_alert(alert_id: int) -> DesktopAlert:
+    row = fetch_desktop_alert(alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Desktop alert not found")
+    return row_to_desktop_alert(row)
 
 
 @app.patch("/api/desktop-alerts/{alert_id}", response_model=DesktopAlert)

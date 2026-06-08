@@ -178,6 +178,15 @@ def fetch_pending_desktop_alerts() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def fetch_desktop_alert(alert_id: int) -> sqlite3.Row | None:
+    init_db()
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM desktop_alerts WHERE id = ?",
+            (alert_id,),
+        ).fetchone()
+
+
 def update_desktop_alert_status(alert_id: int, status: str) -> sqlite3.Row | None:
     init_db()
     timestamp_column = "shown_at" if status == "shown" else "closed_at"

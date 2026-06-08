@@ -107,6 +107,11 @@ def test_desktop_alert_lifecycle():
     assert created["message"] == "请休息"
     assert created["status"] == "pending"
 
+    detail_response = client.get(f"/api/desktop-alerts/{created['id']}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == created["id"]
+    assert detail_response.json()["status"] == "pending"
+
     pending_response = client.get("/api/desktop-alerts/pending")
     assert pending_response.status_code == 200
     assert [alert["id"] for alert in pending_response.json()] == [created["id"]]
@@ -121,6 +126,17 @@ def test_desktop_alert_lifecycle():
     assert closed_response.json()["status"] == "closed"
     assert closed_response.json()["closed_at"] is not None
 
+    closed_detail_response = client.get(f"/api/desktop-alerts/{created['id']}")
+    assert closed_detail_response.status_code == 200
+    assert closed_detail_response.json()["status"] == "closed"
+    assert closed_detail_response.json()["closed_at"] is not None
+
     pending_after_close = client.get("/api/desktop-alerts/pending")
     assert pending_after_close.status_code == 200
     assert pending_after_close.json() == []
+
+
+def test_missing_desktop_alert_returns_404():
+    response = client.get("/api/desktop-alerts/999")
+
+    assert response.status_code == 404
