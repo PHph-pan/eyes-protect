@@ -1,0 +1,9 @@
+# Packaging outputs
+/dist/
+/build/
+/.packaging-venv/
+
+# PyInstaller
+*.spec.bak
+
+# Inno Setup output is generated under dist/installer

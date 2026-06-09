@@ -1,0 +1,120 @@
+可以。这份整理基于当前会话归档和最终成功构建记录；我这边刚尝试复查文件时，本地工具仍被 `CreateProcessWithLogonW failed: 2` 拦住，所以以下按已确认的项目事实和构建结果整理。
+
+**1. 从 Web 端到本地安装包的构建步骤、方法和思路**
+
+整体思路是：
+
+Web 端不再作为单独网站部署，而是先构建成静态资源；然后把 Python 后端、SQLite、本地提醒逻辑、前端静态页面一起打成 Windows 可执行程序；最后用 Inno Setup 把可执行程序封装成安装包。
+
+流程大致是：
+
+1. 前端构建  
+   Vue 前端位于：
+
+   `D:\Files\code\pythonProjects\eyes-protect\frontend`
+
+   构建后生成：
+
+   `D:\Files\code\pythonProjects\eyes-protect\frontend\dist\index.html`
+
+   这个文件是后续打包的关键检查点，说明 Web UI 已经从源码变成可被本地程序加载的静态页面。
+
+2. 后端和本地程序整合  
+   项目后端是 FastAPI + SQLite，本地提醒逻辑由桌面程序承载。核心文件包括：
+
+   `D:\Files\code\pythonProjects\eyes-protect\packaged_app.py`  
+   `D:\Files\code\pythonProjects\eyes-protect\desktop_reminder.py`  
+   `D:\Files\code\pythonProjects\eyes-protect\backend\app\main.py`  
+   `D:\Files\code\pythonProjects\eyes-protect\backend\app\database.py`
+
+   打包思路是让安装后的用户不用关心 Node、Python、虚拟环境、前端开发服务器，只启动一个本地应用即可。
+
+3. 生成绿色版 EXE  
+   Windows 打包脚本：
+
+   `D:\Files\code\pythonProjects\eyes-protect\packaging\build_windows.ps1`
+
+   负责调用前端构建、PyInstaller 打包等流程。成功后生成：
+
+   `D:\Files\code\pythonProjects\eyes-protect\dist\EyesProtect\EyesProtect.exe`
+
+   这个阶段得到的是“可直接运行的本地程序目录”。
+
+4. 生成安装包  
+   顶层入口脚本：
+
+   `D:\Files\code\pythonProjects\eyes-protect\build_windows_installer.ps1`
+
+   会进一步调用 Inno Setup 配置：
+
+   `D:\Files\code\pythonProjects\eyes-protect\packaging\EyesProtect.iss`
+
+   最终生成安装包：
+
+   `D:\Files\code\pythonProjects\eyes-protect\dist\installer\EyesProtect-Setup-0.1.0.exe`
+
+5. 最终确认  
+   你最后这次输出里有：
+
+   `Successful compile`  
+   `Done: D:\Files\code\pythonProjects\eyes-protect\dist\installer\EyesProtect-Setup-0.1.0.exe`
+
+   所以这次是成功的。`install`/`installer` 目录下生成安装包，也符合预期。
+
+**2. 过程中遇到的问题和解决办法**
+
+1. Inno Setup 语言文件依赖不稳定  
+   问题：原安装脚本依赖特定语言文件，某些环境下 Inno Setup 找不到对应语言资源，导致编译失败。  
+   解决：简化 `EyesProtect.iss`，移除脆弱的语言文件依赖，避免安装包构建受本机 Inno Setup 语言包影响。
+
+2. 架构相关配置容易触发兼容问题  
+   问题：安装脚本里存在架构相关配置，不同 Inno Setup 版本或 Windows 环境下可能报错。  
+   解决：移除不必要的架构特定 directive，让安装脚本更通用。
+
+3. 安装权限问题  
+   问题：如果安装到 `Program Files`，通常需要管理员权限，普通用户安装容易失败。  
+   解决：改为安装到：
+
+   `{localappdata}\Programs\EyesProtect`
+
+   并设置：
+
+   `PrivilegesRequired=lowest`
+
+   这样就是当前用户安装，不强制管理员权限。
+
+4. 构建成功与否不够明确  
+   问题：之前脚本可能中间步骤失败，但最后不一定清楚告诉用户到底哪个产物缺失。  
+   解决：构建脚本加入关键产物检查，包括：
+
+   `frontend\dist\index.html`  
+   `dist\EyesProtect\EyesProtect.exe`  
+   `dist\installer\EyesProtect-Setup-0.1.0.exe`
+
+   缺哪个就尽早失败，方便定位。
+
+5. 前端产物缺失风险  
+   问题：如果前端没有先构建，Python 打包或安装包阶段可能拿不到 Web UI。  
+   解决：把前端构建结果作为硬性检查点，必须存在 `frontend\dist\index.html`。
+
+6. PyInstaller 产物缺失风险  
+   问题：如果 Python 程序没有成功打成 EXE，Inno Setup 后续也无法正确生成安装包。  
+   解决：检查：
+
+   `dist\EyesProtect\EyesProtect.exe`
+
+   只有绿色版程序存在，才继续生成安装器。
+
+7. 构建产物污染项目目录  
+   问题：`dist`、前端构建产物等属于构建结果，不应该作为源码长期跟踪。  
+   解决：把构建产物加入 `.gitignore`，避免后续提交时混入安装包或临时文件。
+
+8. Codex 本地命令执行环境异常  
+   问题：当前 Codex 环境多次执行 PowerShell 时出现：
+
+   `CreateProcessWithLogonW failed: 2`
+
+   这不是项目构建本身的问题，而是当前工具环境启动 Windows 进程失败。  
+   解决：实际构建由你在本机 PowerShell 执行；我根据脚本修改和你贴出的构建输出来判断最终结果。
+
+结论：现在这条链路已经打通了，从 Web 前端源码到 Windows 本地安装包的完整路径是可用的。下一步最实用的验证就是双击安装包安装，然后从桌面或开始菜单启动，确认提醒界面、设置保存、提醒弹窗都能正常工作。

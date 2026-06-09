@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Frontend build output
+frontend/dist/
+
+# Packaging outputs
+build/
+dist/
+.packaging-venv/
+
+# PyInstaller / installer byproducts
+*.spec.bak
